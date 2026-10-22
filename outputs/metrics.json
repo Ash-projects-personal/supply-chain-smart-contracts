@@ -1,0 +1,11 @@
+{
+  "repo": "supply-chain-smart-contracts",
+  "toolchain": "forge 1.0.0, solc 0.8.24, anvil local chain, OpenZeppelin AccessControl 5.0.2 (vendored), web3.py pipeline",
+  "contract_address_local": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+  "batches_created_on_local_chain": 3,
+  "transfer_events_read": 3,
+  "rows_loaded_to_sqlite": 3,
+  "transfers_counted_from_onchain_history": 3,
+  "reconciliation_match": true,
+  "note": "All activity is on a disposable local anvil chain created for this run. The contract has never been deployed to any live network. No discrepancy reduction figure is computed, because there is no manual baseline to compare against."
+}

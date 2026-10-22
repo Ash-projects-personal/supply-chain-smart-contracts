@@ -1,0 +1,14 @@
+No files changed, compilation skipped
+
+Ran 8 tests for test/SupplyChain.t.sol:SupplyChainTest
+[PASS] testCreateBatch() (gas: 21524)
+[PASS] testFullChainTransfer() (gas: 229122)
+[PASS] testNonHolderCannotTransfer() (gas: 17633)
+[PASS] testNonManufacturerCannotCreate() (gas: 15703)
+[PASS] testRecallBlocksTransfer() (gas: 26055)
+[PASS] testRetailerCannotTransferFurther() (gas: 220716)
+[PASS] testVerifyQualityCert() (gas: 13676)
+[PASS] testWrongRoleReceiverReverts() (gas: 20232)
+Suite result: ok. 8 passed; 0 failed; 0 skipped; finished in 3.43ms (582.48µs CPU time)
+
+Ran 1 test suite in 4.87ms (3.43ms CPU time): 8 tests passed, 0 failed, 0 skipped (8 total tests)

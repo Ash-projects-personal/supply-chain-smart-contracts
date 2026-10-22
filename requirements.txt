@@ -1,0 +1,3 @@
+# Solidity: Foundry (forge, anvil) 1.0.0 with solc 0.8.24.
+# OpenZeppelin Contracts 5.0.2 is vendored under lib/ (no download needed).
+web3>=7

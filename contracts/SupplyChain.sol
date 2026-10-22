@@ -1,155 +1,122 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
 
-/**
- * Supply Chain Traceability Smart Contract
- * Tracks 1,200+ product batches on Ethereum.
- * Reduced reconciliation discrepancies by 91% vs legacy manual tracking.
- */
+/// @title SupplyChain
+/// @notice Batch traceability for a three step supply chain. A
+/// manufacturer creates a batch, a distributor receives it, then a
+/// retailer receives it. Every transfer is appended to the batch's
+/// history and emitted as an event. Roles come from OpenZeppelin
+/// AccessControl, vendored under lib/.
+///
+/// There are no usage statistics in this header, on purpose: an earlier
+/// version claimed 1,200 tracked batches and a 91 percent discrepancy
+/// reduction. Both numbers were invented in the mock analytics script,
+/// not measured anywhere. The contract has never been deployed.
 contract SupplyChain is AccessControl {
     bytes32 public constant MANUFACTURER_ROLE = keccak256("MANUFACTURER_ROLE");
-    bytes32 public constant DISTRIBUTOR_ROLE  = keccak256("DISTRIBUTOR_ROLE");
-    bytes32 public constant RETAILER_ROLE     = keccak256("RETAILER_ROLE");
+    bytes32 public constant DISTRIBUTOR_ROLE = keccak256("DISTRIBUTOR_ROLE");
+    bytes32 public constant RETAILER_ROLE = keccak256("RETAILER_ROLE");
 
-    enum BatchStatus { Created, InTransit, AtDistributor, AtRetailer, Sold, Recalled }
-
-    struct ProductBatch {
-        uint256 batchId;
-        string  productName;
-        uint256 quantity;
-        address manufacturer;
-        uint256 manufacturedAt;
-        BatchStatus status;
-        string  currentLocation;
-        bytes32 qualityCertHash; // IPFS hash of quality cert document
+    enum Stage {
+        Created,
+        WithDistributor,
+        WithRetailer,
+        Recalled
     }
 
-    struct TransferEvent {
+    struct Transfer {
         address from;
         address to;
-        BatchStatus newStatus;
-        string  location;
         uint256 timestamp;
-        string  notes;
+        Stage stageAfter;
     }
 
-    // Storage
-    mapping(uint256 => ProductBatch)        public batches;
-    mapping(uint256 => TransferEvent[])     public transferHistory;
-    uint256 public totalBatches;
+    struct Batch {
+        string productName;
+        address currentHolder;
+        Stage stage;
+        bytes32 qualityCertHash;
+        bool exists;
+        Transfer[] history;
+    }
 
-    // Events
-    event BatchCreated(uint256 indexed batchId, string productName, address manufacturer);
-    event BatchTransferred(uint256 indexed batchId, address from, address to, BatchStatus newStatus);
-    event BatchRecalled(uint256 indexed batchId, string reason);
+    uint256 public nextBatchId;
+    mapping(uint256 => Batch) public batches;
+
+    event BatchCreated(uint256 indexed batchId, address indexed manufacturer, string productName);
+    event BatchTransferred(uint256 indexed batchId, address indexed from, address indexed to, Stage stageAfter);
+    event BatchRecalled(uint256 indexed batchId, address indexed by);
 
     constructor() {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
 
-    /**
-     * Create a new product batch. Only manufacturers can call this.
-     */
-    function createBatch(
-        string calldata productName,
-        uint256 quantity,
-        string calldata location,
-        bytes32 qualityCertHash
-    ) external onlyRole(MANUFACTURER_ROLE) returns (uint256) {
-        totalBatches++;
-        uint256 batchId = totalBatches;
-
-        batches[batchId] = ProductBatch({
-            batchId:          batchId,
-            productName:      productName,
-            quantity:         quantity,
-            manufacturer:     msg.sender,
-            manufacturedAt:   block.timestamp,
-            status:           BatchStatus.Created,
-            currentLocation:  location,
-            qualityCertHash:  qualityCertHash
-        });
-
-        transferHistory[batchId].push(TransferEvent({
-            from:      address(0),
-            to:        msg.sender,
-            newStatus: BatchStatus.Created,
-            location:  location,
-            timestamp: block.timestamp,
-            notes:     "Batch created at manufacturing facility"
-        }));
-
-        emit BatchCreated(batchId, productName, msg.sender);
-        return batchId;
+    function createBatch(string calldata productName, bytes32 qualityCertHash)
+        external
+        onlyRole(MANUFACTURER_ROLE)
+        returns (uint256 batchId)
+    {
+        batchId = nextBatchId++;
+        Batch storage b = batches[batchId];
+        b.productName = productName;
+        b.currentHolder = msg.sender;
+        b.stage = Stage.Created;
+        b.qualityCertHash = qualityCertHash;
+        b.exists = true;
+        b.history.push(Transfer({from: address(0), to: msg.sender, timestamp: block.timestamp, stageAfter: Stage.Created}));
+        emit BatchCreated(batchId, msg.sender, productName);
     }
 
-    /**
-     * Transfer a batch to the next party in the supply chain.
-     */
-    function transferBatch(
-        uint256 batchId,
-        address to,
-        BatchStatus newStatus,
-        string calldata newLocation,
-        string calldata notes
-    ) external {
-        ProductBatch storage batch = batches[batchId];
-        require(batch.batchId != 0, "Batch does not exist");
-        require(batch.status != BatchStatus.Recalled, "Recalled batch cannot be transferred");
+    function transferBatch(uint256 batchId, address to) external {
+        Batch storage b = batches[batchId];
+        require(b.exists, "no such batch");
+        require(b.currentHolder == msg.sender, "not the current holder");
+        require(b.stage != Stage.Recalled, "batch recalled");
 
-        // Validate state transitions
-        if (newStatus == BatchStatus.InTransit) {
-            require(hasRole(MANUFACTURER_ROLE, msg.sender) || hasRole(DISTRIBUTOR_ROLE, msg.sender),
-                "Only manufacturer or distributor can ship");
-        } else if (newStatus == BatchStatus.AtDistributor) {
-            require(hasRole(DISTRIBUTOR_ROLE, msg.sender), "Only distributor can receive");
-        } else if (newStatus == BatchStatus.AtRetailer) {
-            require(hasRole(RETAILER_ROLE, msg.sender), "Only retailer can receive");
+        Stage next;
+        if (b.stage == Stage.Created) {
+            require(hasRole(DISTRIBUTOR_ROLE, to), "next holder must be a distributor");
+            next = Stage.WithDistributor;
+        } else if (b.stage == Stage.WithDistributor) {
+            require(hasRole(RETAILER_ROLE, to), "next holder must be a retailer");
+            next = Stage.WithRetailer;
+        } else {
+            revert("batch already at retailer");
         }
 
-        address previousHolder = msg.sender;
-        batch.status = newStatus;
-        batch.currentLocation = newLocation;
-
-        transferHistory[batchId].push(TransferEvent({
-            from:      previousHolder,
-            to:        to,
-            newStatus: newStatus,
-            location:  newLocation,
-            timestamp: block.timestamp,
-            notes:     notes
-        }));
-
-        emit BatchTransferred(batchId, previousHolder, to, newStatus);
+        b.history.push(Transfer({from: msg.sender, to: to, timestamp: block.timestamp, stageAfter: next}));
+        b.currentHolder = to;
+        b.stage = next;
+        emit BatchTransferred(batchId, msg.sender, to, next);
     }
 
-    /**
-     * Recall a batch. Admin only.
-     */
-    function recallBatch(uint256 batchId, string calldata reason)
-        external onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        batches[batchId].status = BatchStatus.Recalled;
-        emit BatchRecalled(batchId, reason);
+    function recallBatch(uint256 batchId) external onlyRole(MANUFACTURER_ROLE) {
+        Batch storage b = batches[batchId];
+        require(b.exists, "no such batch");
+        b.stage = Stage.Recalled;
+        emit BatchRecalled(batchId, msg.sender);
     }
 
-    /**
-     * Get the full transfer history for a batch (provenance verification).
-     */
-    function getBatchHistory(uint256 batchId)
-        external view returns (TransferEvent[] memory)
-    {
-        return transferHistory[batchId];
-    }
-
-    /**
-     * Verify a batch's quality certificate against the stored hash.
-     */
-    function verifyQualityCert(uint256 batchId, bytes32 certHash)
-        external view returns (bool)
-    {
+    /// @notice Compares a supplied hash with the quality certificate
+    /// hash stored on the batch at creation. The contract never touches
+    /// IPFS; the stored value is whatever hash the manufacturer supplied.
+    function verifyQualityCert(uint256 batchId, bytes32 certHash) external view returns (bool) {
+        require(batches[batchId].exists, "no such batch");
         return batches[batchId].qualityCertHash == certHash;
+    }
+
+    function historyLength(uint256 batchId) external view returns (uint256) {
+        return batches[batchId].history.length;
+    }
+
+    function getTransfer(uint256 batchId, uint256 index)
+        external
+        view
+        returns (address from, address to, uint256 timestamp, Stage stageAfter)
+    {
+        Transfer storage t = batches[batchId].history[index];
+        return (t.from, t.to, t.timestamp, t.stageAfter);
     }
 }

@@ -1,0 +1,28 @@
+Compiling 1 files with Solc 0.8.24
+Solc 0.8.24 finished in 355.64ms
+Compiler run successful!
+Script ran successfully.
+
+## Setting up 1 EVM.
+
+==========================
+
+Chain 31337
+
+Estimated gas price: 2.000000001 gwei
+
+Estimated total gas used for script: 2928393
+
+Estimated amount required: 0.005856786002928393 ETH
+
+==========================
+
+
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: /home/hatch/workspace/projects/rebuilds/supply-chain-smart-contracts/broadcast/Deploy.s.sol/31337/run-latest.json
+
+Sensitive values saved to: /home/hatch/workspace/projects/rebuilds/supply-chain-smart-contracts/cache/Deploy.s.sol/31337/run-latest.json
+
